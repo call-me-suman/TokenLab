@@ -34,11 +34,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { hyperionConfig } from "@/lib/config";
 
-const queryClient = new QueryClient();
-
 type Props = {
   children: React.ReactNode;
 };
+const queryClient = new QueryClient();
 
 const Web3Provider = ({ children }: Props) => {
   return (

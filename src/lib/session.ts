@@ -1,10 +1,13 @@
 // lib/session.ts
 
 import type { SessionOptions } from "iron-session";
+import { SiweMessage } from "siwe";
 
 export interface SessionData {
-  nonce?: string; // Store nonce for SIWE login
-  address?: string; // Store the wallet address after verification
+  nonce?: string;
+  siwe?: SiweMessage;
+  userId?: string; // This will hold the user's ID from your MongoDB database
+  isLoggedIn: boolean;
 }
 
 export const sessionOptions: SessionOptions = {
