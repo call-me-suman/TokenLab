@@ -32,6 +32,7 @@ export default function RootLayout({
       >
         <Web3Provider>
           <Navbar />
+
           <main className="flex-1">{children}</main>
         </Web3Provider>
       </body>

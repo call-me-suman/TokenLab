@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
 
     const lowerCasePrompt = prompt.toLowerCase();
 
+    console.log(allServers);
+
     const targetServer = allServers.find((server) =>
       server.keywords.some((keyword: string) =>
         lowerCasePrompt.includes(keyword.toLowerCase())

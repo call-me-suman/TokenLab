@@ -142,7 +142,6 @@ export async function creditUserAccount(
   }
   return result;
 }
-
 /**
  * Deducts an amount from a user's balance for a query.
  * @param userId The user's unique ID from your database.
@@ -151,18 +150,55 @@ export async function creditUserAccount(
  */
 export async function deductUserBalance(userId: string, amount: number) {
   const mongoClient = await getMongoClient();
-  const usersCollection = mongoClient.db(DB_NAME).collection("users"); // Atomically find the user and decrement their balance only if it's sufficient.
+  const usersCollection = mongoClient.db(DB_NAME).collection("users");
 
-  const result = await usersCollection.findOneAndUpdate(
-    { _id: new ObjectId(userId), "account.balance": { $gte: amount } },
-    {
-      $inc: { "account.balance": -amount },
-      $set: { "account.updatedAt": new Date() },
-    },
-    { returnDocument: "after" }
-  );
+  try {
+    // Atomically find the user and decrement their balance only if it's sufficient.
+    const result = await usersCollection.findOneAndUpdate(
+      {
+        _id: new ObjectId(userId),
+        "account.balance": { $gte: amount },
+      },
+      {
+        $inc: { "account.balance": -amount },
+        $set: { "account.updatedAt": new Date() },
+      },
+      {
+        returnDocument: "after",
+      }
+    );
 
-  return result ? result.value : null; // Will be null if the user was not found or had insufficient funds
+    // Handle different MongoDB driver versions
+    // Older drivers: result.value
+    // Newer drivers: result directly contains the document
+    const updatedDocument = result?.value || result;
+
+    if (!updatedDocument) {
+      // This could mean either:
+      // 1. User doesn't exist
+      // 2. User has insufficient balance
+      // Let's check which one it is for better debugging
+      const userExists = await usersCollection.findOne({
+        _id: new ObjectId(userId),
+      });
+      if (!userExists) {
+        console.log(`[DEBUG] User ${userId} not found`);
+      } else {
+        console.log(
+          `[DEBUG] User ${userId} has insufficient balance. Current: ${userExists.account?.balance}, Required: ${amount}`
+        );
+      }
+      return null;
+    }
+
+    return updatedDocument;
+  } catch (error) {
+    console.error(
+      `[ERROR] Failed to deduct balance for user ${userId}:`,
+      error
+    );
+    return null;
+  }
 }
 
 // --- MCP Server Functions ---

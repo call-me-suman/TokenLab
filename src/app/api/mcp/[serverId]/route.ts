@@ -1,8 +1,3 @@
-// 2. THE PROXY API AND PAYMENT MIDDLEWARE
-// Create this new file.
-// Path: app/api/mcp/[serverId]/route.ts
-// ========================================================================
-
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
@@ -16,7 +11,7 @@ import {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { serverId: string } }
+  { params }: { params: Promise<{ serverId: string }> }
 ) {
   const session = await getIronSession<SessionData>(
     await cookies(),
@@ -31,7 +26,7 @@ export async function POST(
     const userId = session.userId;
 
     // --- Step 2: Get Server Details ---
-    const serverId = params.serverId;
+    const { serverId } = await params;
     const mcpServer = await getMcpServerById(serverId);
 
     if (!mcpServer) {
@@ -45,6 +40,7 @@ export async function POST(
 
     // --- Step 3: Payment Deduction (Middleware Part 2) ---
     const updatedUserAccount = await deductUserBalance(userId, price);
+    console.log("User account", updatedUserAccount, userId);
 
     if (!updatedUserAccount) {
       // This means the user had insufficient funds.
@@ -80,15 +76,51 @@ export async function POST(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // You could add a secret header here to prove the request came from your marketplace
-        // 'X-Marketplace-Signature': '...'
+        // Optional: Add marketplace signature for security
+        "X-Marketplace-Request": "true",
+        "X-User-Id": userId, // Pass user ID to seller if needed
       },
       body: JSON.stringify({ prompt }),
+      // Add timeout to prevent hanging requests
+      signal: AbortSignal.timeout(30000), // 30 second timeout
     });
 
-    // --- Step 6: Stream Response Back to User ---
-    // Efficiently pipe the seller's response (JSON, image, audio, etc.) back to the original user.
-    const responseHeaders = new Headers(sellerResponse.headers);
+    // --- Step 6: Handle Different Response Types ---
+
+    // Check if the seller's endpoint is reachable
+    if (!sellerResponse.ok && sellerResponse.status >= 500) {
+      console.error(`[Proxy] Seller endpoint error: ${sellerResponse.status}`);
+      return NextResponse.json(
+        { error: "The MCP server is currently unavailable." },
+        { status: 503 }
+      );
+    }
+
+    // --- Step 7: Stream Response Back to User ---
+    // Copy headers but filter out problematic ones
+    const responseHeaders = new Headers();
+
+    // Copy safe headers
+    const safeHeaders = [
+      "content-type",
+      "content-length",
+      "content-disposition",
+      "cache-control",
+      "expires",
+      "last-modified",
+      "etag",
+    ];
+
+    safeHeaders.forEach((header) => {
+      const value = sellerResponse.headers.get(header);
+      if (value) {
+        responseHeaders.set(header, value);
+      }
+    });
+
+    // Add CORS headers if needed
+    responseHeaders.set("Access-Control-Allow-Origin", "*");
+
     const responseBody = sellerResponse.body;
 
     return new NextResponse(responseBody, {
@@ -98,6 +130,15 @@ export async function POST(
     });
   } catch (error) {
     console.error("[MCP Proxy Error]", error);
+
+    // Handle timeout specifically
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return NextResponse.json(
+        { error: "Request timeout: The MCP server took too long to respond." },
+        { status: 504 }
+      );
+    }
+
     return NextResponse.json(
       { error: "An internal server error occurred." },
       { status: 500 }
